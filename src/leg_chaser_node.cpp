@@ -2,12 +2,11 @@
 #include <sensor_msgs/LaserScan.h>
 #include <leg_chaser/leg_detection.h>
 
-using namespace std;
-sensor_msgs::LaserScan scanresult;
+Legdet legdet;
 
 void scanCallback(const sensor_msgs::LaserScan::ConstPtr& msg)
 {
-	scanresult = *msg;
+	legdet.scanwrite(*msg);
 }
 
 int main(int argc, char** argv)
@@ -17,11 +16,13 @@ int main(int argc, char** argv)
 	ros::Rate looprate(30);
 	ros::Subscriber scansub = node_.subscribe("/scan", 1, &scanCallback);
 
-	Legdet legdet;
+	legdet.set_label_value(0.04);
+	legdet.set_anb_value(3);
 
 	while(ros::ok())
 	{
-		legdet.detection(scanresult);
+		legdet.labeling();
+		legdet.label_disp();
 		ros::spinOnce();
 		looprate.sleep();
 	}
