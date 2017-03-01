@@ -1,6 +1,6 @@
 #include <leg_chaser/leg_detection.h>
-#define iCls_bgn ClusterList[CircleList[i].i].begin
-#define iCls_end ClusterList[CircleList[i].i].end
+#define ClstBgn(iCir) ClusterList[CircleList[iCir].i].begin
+#define ClstEnd(iCir) ClusterList[CircleList[iCir].i].end
 
 using namespace std;
 
@@ -117,21 +117,20 @@ void Legdet::Clustering()
 
 void Legdet::CircleFitting()
 {
-	//cout<<"ang.m = "<<scan.angle_min<<endl;
 	for(int i=0; i<ClusterList.size(); ++i) {
 		if(FittingMinPoints < ClusterList[i].end-ClusterList[i].begin+1) {
 			LSM(i);
 		}
 	}
-	//cout<<"ang.M = "<<scan.angle_max<<endl;
 }
 
 void Legdet::SetLegIntensities()
 {
-	for(int i=0; i<CircleList.size(); ++i) {
-		if(LegDMin<CircleList[i].d && CircleList[i].d<LegDMax) {
-			for(int j=iCls_bgn; j<=iCls_end; ++j) {
-				scan.intensities[I[j]] = 128.0;
+	for(int iCir=0; iCir<CircleList.size(); ++iCir) {
+		if(LegDMin<CircleList[iCir].d && CircleList[iCir].d<LegDMax) {
+			cout<<"ErrorBar"<<CalcErrorBar(iCir)<<endl;
+			for(int j=ClstBgn(iCir); j<=ClstEnd(iCir); ++j) {
+				scan.intensities[I[j]] = 1.0;
 			}
 			//cout<<"intensitiy set."<<endl;
 		}
@@ -158,7 +157,7 @@ double Legdet::CalcDist(int a, int b)
 			-2*scan.ranges[a]*scan.ranges[b]*cos((b-a)*scan.angle_increment));
 }
 
-void Legdet::LSM(int CLi)
+void Legdet::LSM(int Cli)
 {
 	double Sig_x2 = 0.0;
 	double Sig_xy = 0.0;
@@ -170,7 +169,7 @@ void Legdet::LSM(int CLi)
 	double Sig_ya = 0.0;
 	double Sig_a  = 0.0;
 
-	for(int i=ClusterList[CLi].begin; i<=ClusterList[CLi].end; ++i) {
+	for(int i=ClusterList[Cli].begin; i<=ClusterList[Cli].end; ++i) {
 		double angle = scan.angle_min + scan.angle_increment * I[i];
 		double x = scan.ranges[I[i]] * cos(angle);
 		double y = scan.ranges[I[i]] * sin(angle);
@@ -199,11 +198,24 @@ void Legdet::LSM(int CLi)
 	cv::Vec3d ABC = (cv::Vec3d)cv::Mat1d(LSMmat.inv() * LSMvec);
 
 	Circle circle;
-	circle.i = CLi;
+	circle.i = Cli;
 	circle.x = - ABC[0] / 2;
 	circle.y = - ABC[1] / 2; 
 	circle.d = 2 * sqrt( pow(circle.x, 2) + pow(circle.y, 2) - ABC[2] );
 	CircleList.push_back(circle);
 	cout<<"x,y,d =  "<<circle.x<<" , "<<circle.y<<" , "<<circle.d<<endl;
 }
+
+double Legdet::CalcErrorBar(int iCir)
+{
+	double SigError2 = 0.0;
+	for(int i=ClstBgn(iCir); i<=ClstEnd(iCir); ++i) {
+		double angle = scan.angle_min + scan.angle_increment * I[i];
+		double x = scan.ranges[I[i]] * cos(angle);
+		double y = scan.ranges[I[i]] * sin(angle);
+		SigError2 += pow(x-CircleList[iCir].x, 2) + pow(y-CircleList[iCir].y, 2);
+	}
+	return SigError2 / (ClstEnd(iCir)-ClstBgn(iCir)+1);
+}
+
 

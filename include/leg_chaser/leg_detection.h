@@ -55,8 +55,9 @@ class Legdet{
 		void PublishScan(ros::Publisher&, sensor_msgs::LaserScan&);
 		void VectorClear();
 
-		double CalcDist(int,int);
-		void LSM(int);
+		double CalcDist(int,int);   // scan.ranges number1, number2
+		void LSM(int);   // ClusterList number
+		double CalcErrorBar(int);   // CircleList number
 };
 
 #endif
