@@ -28,7 +28,7 @@ void Legdet::Proccessing()
 		PublishScan(ScanClusteredPub, scanClustered);
 		PublishScan(ScanLegPub, scan);
 		VectorClear();
-	
+
 		cout<<"<roopEnd>"<<endl;
 
 		ros::spinOnce();
@@ -133,7 +133,7 @@ void Legdet::SetLegIntensities()
 			for(int j=iCls_bgn; j<=iCls_end; ++j) {
 				scan.intensities[I[j]] = 128.0;
 			}
-			cout<<"intensitiy set."<<endl;
+			//cout<<"intensitiy set."<<endl;
 		}
 	}
 }
@@ -172,10 +172,8 @@ void Legdet::LSM(int CLi)
 
 	for(int i=ClusterList[CLi].begin; i<=ClusterList[CLi].end; ++i) {
 		double angle = scan.angle_min + scan.angle_increment * I[i];
-		//cout<<"angle = "<<angle<<endl;
 		double x = scan.ranges[I[i]] * cos(angle);
 		double y = scan.ranges[I[i]] * sin(angle);
-		cout<<y<<endl;
 		double a = x*x + y*y;
 		Sig_x2 += x*x;
 		Sig_xy += x*y;
@@ -198,13 +196,13 @@ void Legdet::LSM(int CLi)
 			-Sig_ya,
 			-Sig_a);
 
-	cv::Mat ABC = LSMmat.inv() * LSMvec;
+	cv::Vec3d ABC = (cv::Vec3d)cv::Mat1d(LSMmat.inv() * LSMvec);
 
 	Circle circle;
 	circle.i = CLi;
-	circle.x = - ABC.at<double>(1,1) / 2;
-	circle.y = - ABC.at<double>(2,1) / 2; 
-	circle.d = 2 * sqrt( pow(circle.x, 2) + pow(circle.y, 2) - ABC.at<double>(3,1) );
+	circle.x = - ABC[0] / 2;
+	circle.y = - ABC[1] / 2; 
+	circle.d = 2 * sqrt( pow(circle.x, 2) + pow(circle.y, 2) - ABC[2] );
 	CircleList.push_back(circle);
 	cout<<"x,y,d =  "<<circle.x<<" , "<<circle.y<<" , "<<circle.d<<endl;
 }
