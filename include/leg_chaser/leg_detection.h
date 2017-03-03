@@ -5,6 +5,7 @@
 #include <sensor_msgs/LaserScan.h>
 #include <sensor_msgs/PointCloud.h>
 #include <geometry_msgs/PoseStamped.h>
+#include <tf/transform_broadcaster.h>
 #include <opencv2/core.hpp>
 
 class Legdet{
@@ -16,6 +17,7 @@ class Legdet{
 		void SetLidarError(double);
 		void SetFittingMinPoints(int);
 		void SetLegDRange(double,double);
+		void SetLegWidthMax(double);
 		void Proccessing();
 	
 
@@ -44,6 +46,7 @@ class Legdet{
 		int FittingMinPoints;
 		double LegDMax;
 		double LegDMin;
+		double LegWidthMax;
 
 		std::vector<int> I;
 		std::vector<double> DistanceList;
@@ -63,6 +66,7 @@ class Legdet{
 		{
 			Range range;
 			Circle circle;
+			bool isLeg;
 		};
 		std::vector<Cluster> ClusterList;
 
@@ -70,6 +74,7 @@ class Legdet{
 		void ScanWrite(sensor_msgs::LaserScan);
 		void Clustering();
 		void LegDetection();
+		void PeopleDetection();
 		void VectorClear();
 
 		bool isFar(int,int);   // scan.ranges number1, number2

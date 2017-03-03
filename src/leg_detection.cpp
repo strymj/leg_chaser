@@ -12,6 +12,7 @@ Legdet::Legdet():
 	PeopleTopic("People"),
 	LegDMin(0.08),
 	LegDMax(0.16),
+	LegWidthMax(0.4),
 	ClusterThreshold(0.03),
 	NanSkipNum(4),
 	LidarError(0.0),
@@ -24,27 +25,14 @@ Legdet::Legdet():
 	LegScanPub = node_.advertise<sensor_msgs::LaserScan>(LegScanTopic, 1);
 	LegPointsPub = node_.advertise<sensor_msgs::PointCloud>(LegPointsTopic, 1);
 	PeoplePub = node_.advertise<geometry_msgs::PoseStamped>(PeopleTopic, 1);
-}
 
-void Legdet::Proccessing()
-{
-	while(ros::ok())
-	{
-		if(subscribed) {
-			Clustering();
-			LegDetection();
-			ClusteredScanPub.publish(ClusteredScan);
-			LegScanPub.publish(scan);
-			LegPointsPub.publish(LegPoints);
-			VectorClear();
-			subscribed = false;
-		}
-
-		cout<<"<roopEnd>"<<endl;
-
-		ros::spinOnce();
-		looprate.sleep();
-	}
+	People.pose.position.x = 0.0;
+	People.pose.position.y = 0.0;
+	People.pose.position.z = 0.0;
+	People.pose.orientation.x = 0.0;
+	People.pose.orientation.y = 0.0;
+	People.pose.orientation.z = 0.0;
+	People.pose.orientation.w = 0.0;
 }
 
 void Legdet::scanCallback(const sensor_msgs::LaserScan::ConstPtr& msg)
@@ -125,6 +113,41 @@ void Legdet::SetLegDRange(double min, double max)
 	}
 }
 
+void Legdet::SetLegWidthMax(double value)
+{
+	if(value<0) {
+		cout<<"cannot set Leg Width Max (>0[m])"<<endl;
+	}
+	else {
+		LegWidthMax = value;
+	}
+}
+
+
+
+void Legdet::Proccessing()
+{
+	while(ros::ok())
+	{
+		if(subscribed) {
+			Clustering();
+			LegDetection();
+			PeopleDetection();
+			ClusteredScanPub.publish(ClusteredScan);
+			LegScanPub.publish(scan);
+			LegPointsPub.publish(LegPoints);
+			PeoplePub.publish(People);
+			VectorClear();
+			subscribed = false;
+		}
+
+		cout<<"<roopEnd>"<<endl;
+
+		ros::spinOnce();
+		looprate.sleep();
+	}
+}
+
 void Legdet::Clustering()
 {
 	// make nan removed list
@@ -136,7 +159,7 @@ void Legdet::Clustering()
 	}
 
 	// make distance list 
-	Cluster cluster = { {0,0}, {-1,0,0} };
+	Cluster cluster = { {0, 0}, {-1.0, 0.0, 0.0, 0.0}, false};
 	int inte = 0;
 	for(int i=0; i+1<I.size(); ++i) {
 		double dist = CalcDist(I[i], I[i+1]);
@@ -161,11 +184,58 @@ void Legdet::Clustering()
 void Legdet::LegDetection()
 {
 	// Circle Fitting using Least Squares Method
+	LegPoints.header = scan.header;
 	for(int i=0; i<ClusterList.size(); ++i) {
 		double dist = CalcDist(I[ClusterList[i].range.Ibgn], I[ClusterList[i].range.Iend]);
 		if(LegDMin<dist && dist<LegDMax) {
 			LSM(i);
+			if(ClusterList[i].circle.ErrorBar<ErrorBarThreshold
+					&& LegDMin<2*ClusterList[i].circle.r
+					&& 2*ClusterList[i].circle.r<LegDMax) {
+				ClusterList[i].isLeg = true;
+				geometry_msgs::Point32 LegPoint;
+				LegPoint.x = ClusterList[i].circle.x;
+				LegPoint.y = ClusterList[i].circle.y;
+				LegPoint.z = 0.0;
+				LegPoints.points.push_back(LegPoint);
+			}
 		}
+	}
+}
+
+void Legdet::PeopleDetection()
+{
+	People.header = scan.header;
+	double PeopleDistMin = -1.0;
+
+	vector<int> LLI;
+	for(int i=0; i<ClusterList.size(); ++i) {
+		if(ClusterList[i].isLeg) {
+			LLI.push_back(i);
+		}
+	}
+
+	for(int i=0; i+1<LLI.size(); ++i) {
+		double x1 = ClusterList[LLI[i]].circle.x;
+		double y1 = ClusterList[LLI[i]].circle.y;
+		double x2 = ClusterList[LLI[i+1]].circle.x;
+		double y2 = ClusterList[LLI[i+1]].circle.y;
+		if(sqrt(pow(x2-x1, 2) + pow(y2-y1, 2)) < LegWidthMax) {
+			double px = (x1+x2)/2;
+			double py = (y1+y2)/2;
+			double dist = sqrt(px*px + py*py);
+			if(PeopleDistMin<0 || dist<PeopleDistMin) {
+				PeopleDistMin = dist;
+				double yaw = atan2(y2-y1, x2-x1) - M_PI/2;
+				geometry_msgs::Quaternion q;
+				quaternionTFToMsg(tf::createQuaternionFromRPY(0.0,0.0,yaw), q);
+				People.pose.position.x = px;
+				People.pose.position.y = py;
+				People.pose.position.z = 0.0;
+				People.pose.orientation = q;
+			}
+		}
+
 	}
 }
 
@@ -176,6 +246,8 @@ void Legdet::VectorClear()
 	ClusterList.clear();
 	LegPoints.points.clear();
 }
+
+
 
 bool Legdet::isFar(int a, int b)
 {
@@ -247,15 +319,6 @@ void Legdet::LSM(int CLN)
 		scan.intensities[I[i]] = 1.0;
 	}
 
-	LegPoints.header = scan.header;
-	if(ClusterList[CLN].circle.ErrorBar<ErrorBarThreshold
-			&& LegDMin<2*cr && 2*cr<LegDMax) {
-		geometry_msgs::Point32 LegPoint;
-		LegPoint.x = cx;
-		LegPoint.y = cy;
-		LegPoint.z = 0.0;
-		LegPoints.points.push_back(LegPoint);
-	}
 }
 
 double Legdet::CalcErrorBar(int CLN)
