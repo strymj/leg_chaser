@@ -1,6 +1,4 @@
 #include <leg_chaser/leg_detection.h>
-#define ClstBgn(iCir) ClusterList[CircleList[iCir].i].begin
-#define ClstEnd(iCir) ClusterList[CircleList[iCir].i].end
 
 using namespace std;
 
@@ -8,26 +6,39 @@ Legdet::Legdet():
 	node_("~"),
 	looprate(30),	
 	ScanTopic("/scan"),
-	PubClusteredTopic("clustered"),
-	PubScanTopic("leg"),
+	ClusteredScanTopic("ClusteredScan"),
+	LegScanTopic("LegScan"),
+	LegPointsTopic("LegPoints"),
+	PeopleTopic("People"),
+	LegDMin(0.08),
+	LegDMax(0.16),
 	ClusterThreshold(0.03),
+	NanSkipNum(4),
+	LidarError(0.0),
+	ErrorBarThreshold(0.003),
 	FittingMinPoints(20)
 {
+	subscribed = false;
 	ScanSub = node_.subscribe(ScanTopic, 1, &Legdet::scanCallback, this);
-	ScanClusteredPub = node_.advertise<sensor_msgs::LaserScan>(PubClusteredTopic, 1);
-	ScanLegPub = node_.advertise<sensor_msgs::LaserScan>(PubScanTopic, 1);
+	ClusteredScanPub = node_.advertise<sensor_msgs::LaserScan>(ClusteredScanTopic, 1);
+	LegScanPub = node_.advertise<sensor_msgs::LaserScan>(LegScanTopic, 1);
+	LegPointsPub = node_.advertise<sensor_msgs::PointCloud>(LegPointsTopic, 1);
+	PeoplePub = node_.advertise<geometry_msgs::PoseStamped>(PeopleTopic, 1);
 }
 
 void Legdet::Proccessing()
 {
 	while(ros::ok())
 	{
-		Clustering();
-		CircleFitting();
-		SetLegIntensities();
-		PublishScan(ScanClusteredPub, scanClustered);
-		PublishScan(ScanLegPub, scan);
-		VectorClear();
+		if(subscribed) {
+			Clustering();
+			LegDetection();
+			ClusteredScanPub.publish(ClusteredScan);
+			LegScanPub.publish(scan);
+			LegPointsPub.publish(LegPoints);
+			VectorClear();
+			subscribed = false;
+		}
 
 		cout<<"<roopEnd>"<<endl;
 
@@ -39,20 +50,52 @@ void Legdet::Proccessing()
 void Legdet::scanCallback(const sensor_msgs::LaserScan::ConstPtr& msg)
 {
 	ScanWrite(*msg);
+	subscribed = true;
 }
 
 void Legdet::ScanWrite(sensor_msgs::LaserScan msg)
 {
 	scan = msg;
-	scanClustered = msg;
+	ClusteredScan = msg;
 }
 
 void Legdet::SetClusterThreshold(double value)
 {
 	if(value<0) {
 		cout<<"cannot set Cluster Threshold (>0[m])"<<endl;
-	}else {
+	}
+	else {
 		ClusterThreshold = value;
+	}
+}
+
+void Legdet::SetErrorBarThreshold(double value)
+{
+	if(value<0) {
+		cout<<"cannot set ErrorBar Threshold (>0[m])"<<endl;
+	}
+	else {
+		ErrorBarThreshold = value;
+	}
+}
+
+void Legdet::SetNanSkipNum(int value)
+{
+	if(value<0) {
+		cout<<"cannot set Nan Skip Num (>0)"<<endl;
+	}
+	else {
+		NanSkipNum = value;
+	}
+}
+
+void Legdet::SetLidarError(double value)
+{
+	if(value<0) {
+		cout<<"cannot set Lidar Error (>0[%])"<<endl;
+	}
+	else {
+		LidarError = value;
 	}
 }
 
@@ -60,7 +103,8 @@ void Legdet::SetFittingMinPoints(int value)
 {
 	if(value<0) {
 		cout<<"cannot set Fitting Min Points (>0[points])"<<endl;
-	}else {
+	}
+	else {
 		FittingMinPoints = value;
 	}
 }
@@ -87,59 +131,42 @@ void Legdet::Clustering()
 	for(int i=0; i<scan.ranges.size(); ++i)
 	{
 		scan.intensities.push_back(0);
-		scanClustered.intensities.push_back(0);
+		ClusteredScan.intensities.push_back(0);
 		if(!isnan(scan.ranges[i])) I.push_back(i);
 	}
 
 	// make distance list 
-	Region region;
-	region.begin = 0;
-	double inte = 0.0;
+	Cluster cluster = { {0,0}, {-1,0,0} };
+	int inte = 0;
 	for(int i=0; i+1<I.size(); ++i) {
 		double dist = CalcDist(I[i], I[i+1]);
 		DistanceList.push_back(dist);
-		if(ClusterThreshold<dist) {
-			if(i+2<I.size() && CalcDist(I[i], I[i+2])<ClusterThreshold) {
-				I.erase(I.begin()+i+1);
+		if(isFar(I[i], I[i+1]) || NanSkipNum<=I[i+1]-I[i]) {
+			//if(i+2<I.size() && !isFar(I[i], I[i+2])) {
+			//	I.erase(I.begin()+i+1);
+			//}
+			//else {
+			cluster.range.Iend = i;
+			ClusterList.push_back(cluster);
+			for(int j=cluster.range.Ibgn; j<=cluster.range.Iend; ++j) {
+				ClusteredScan.intensities[I[j]] = inte;
 			}
-			else {
-				region.end = i;
-				for(int j=region.begin; j<=region.end; ++j) {
-					scanClustered.intensities[I[j]] = inte;
-				}
-				inte += 10.0;
-				ClusterList.push_back(region);
-				region.begin = i+1;
-			}
+			inte += 1;
+			cluster.range.Ibgn = i+1;
+			//}
 		}
 	}
 }
 
-void Legdet::CircleFitting()
+void Legdet::LegDetection()
 {
+	// Circle Fitting using Least Squares Method
 	for(int i=0; i<ClusterList.size(); ++i) {
-		if(FittingMinPoints < ClusterList[i].end-ClusterList[i].begin+1) {
+		double dist = CalcDist(I[ClusterList[i].range.Ibgn], I[ClusterList[i].range.Iend]);
+		if(LegDMin<dist && dist<LegDMax) {
 			LSM(i);
 		}
 	}
-}
-
-void Legdet::SetLegIntensities()
-{
-	for(int iCir=0; iCir<CircleList.size(); ++iCir) {
-		if(LegDMin<CircleList[iCir].d && CircleList[iCir].d<LegDMax) {
-			cout<<"ErrorBar"<<CalcErrorBar(iCir)<<endl;
-			for(int j=ClstBgn(iCir); j<=ClstEnd(iCir); ++j) {
-				scan.intensities[I[j]] = 1.0;
-			}
-			//cout<<"intensitiy set."<<endl;
-		}
-	}
-}
-
-void Legdet::PublishScan(ros::Publisher& pub, sensor_msgs::LaserScan& msg)
-{
-	pub.publish(msg);
 }
 
 void Legdet::VectorClear()
@@ -147,7 +174,16 @@ void Legdet::VectorClear()
 	I.clear();
 	DistanceList.clear();
 	ClusterList.clear();
-	CircleList.clear();
+	LegPoints.points.clear();
+}
+
+bool Legdet::isFar(int a, int b)
+{
+	bool isFar = false;
+	double dist = CalcDist(a, b);
+	double threshold = ClusterThreshold + LidarError * (scan.ranges[a] + scan.ranges[b]) /2;
+	if(threshold<dist) isFar = true;
+	return isFar;
 }
 
 double Legdet::CalcDist(int a, int b)
@@ -157,7 +193,7 @@ double Legdet::CalcDist(int a, int b)
 			-2*scan.ranges[a]*scan.ranges[b]*cos((b-a)*scan.angle_increment));
 }
 
-void Legdet::LSM(int Cli)
+void Legdet::LSM(int CLN)
 {
 	double Sig_x2 = 0.0;
 	double Sig_xy = 0.0;
@@ -169,7 +205,7 @@ void Legdet::LSM(int Cli)
 	double Sig_ya = 0.0;
 	double Sig_a  = 0.0;
 
-	for(int i=ClusterList[Cli].begin; i<=ClusterList[Cli].end; ++i) {
+	for(int i=ClusterList[CLN].range.Ibgn; i<=ClusterList[CLN].range.Iend; ++i) {
 		double angle = scan.angle_min + scan.angle_increment * I[i];
 		double x = scan.ranges[I[i]] * cos(angle);
 		double y = scan.ranges[I[i]] * sin(angle);
@@ -197,25 +233,41 @@ void Legdet::LSM(int Cli)
 
 	cv::Vec3d ABC = (cv::Vec3d)cv::Mat1d(LSMmat.inv() * LSMvec);
 
-	Circle circle;
-	circle.i = Cli;
-	circle.x = - ABC[0] / 2;
-	circle.y = - ABC[1] / 2; 
-	circle.d = 2 * sqrt( pow(circle.x, 2) + pow(circle.y, 2) - ABC[2] );
-	CircleList.push_back(circle);
-	cout<<"x,y,d =  "<<circle.x<<" , "<<circle.y<<" , "<<circle.d<<endl;
+	double cx = -ABC[0] / 2;
+	double cy = -ABC[1] / 2;
+	double cr = sqrt( pow(cx, 2) + pow(cy, 2) - ABC[2] );
+	ClusterList[CLN].circle.x = cx;
+	ClusterList[CLN].circle.y = cy;
+	ClusterList[CLN].circle.r = cr;
+	ClusterList[CLN].circle.ErrorBar = CalcErrorBar(CLN);
+
+	cout<<"ErrorBar"<<ClusterList[CLN].circle.ErrorBar<<endl;
+
+	for(int i=ClusterList[CLN].range.Ibgn; i<=ClusterList[CLN].range.Iend; ++i) {
+		scan.intensities[I[i]] = 1.0;
+	}
+
+	LegPoints.header = scan.header;
+	if(ClusterList[CLN].circle.ErrorBar<ErrorBarThreshold
+			&& LegDMin<2*cr && 2*cr<LegDMax) {
+		geometry_msgs::Point32 LegPoint;
+		LegPoint.x = cx;
+		LegPoint.y = cy;
+		LegPoint.z = 0.0;
+		LegPoints.points.push_back(LegPoint);
+	}
 }
 
-double Legdet::CalcErrorBar(int iCir)
+double Legdet::CalcErrorBar(int CLN)
 {
-	double SigError2 = 0.0;
-	for(int i=ClstBgn(iCir); i<=ClstEnd(iCir); ++i) {
+	double SigError = 0.0;
+	for(int i=ClusterList[CLN].range.Ibgn; i<=ClusterList[CLN].range.Iend; ++i) {
 		double angle = scan.angle_min + scan.angle_increment * I[i];
 		double x = scan.ranges[I[i]] * cos(angle);
 		double y = scan.ranges[I[i]] * sin(angle);
-		SigError2 += pow(x-CircleList[iCir].x, 2) + pow(y-CircleList[iCir].y, 2);
+		SigError += fabs(ClusterList[CLN].circle.r
+				- sqrt(pow(x-ClusterList[CLN].circle.x, 2) + pow(y-ClusterList[CLN].circle.y, 2)));
 	}
-	return SigError2 / (ClstEnd(iCir)-ClstBgn(iCir)+1);
+	return SigError / (ClusterList[CLN].range.Iend-ClusterList[CLN].range.Ibgn+1);
 }
-
 
