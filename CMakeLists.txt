@@ -29,8 +29,19 @@ add_library(leg_detection
 	src/leg_detection.cpp
 	)
 
+add_executable(leg_detection_node
+	src/leg_detection_node.cpp
+	)
+
 add_executable(leg_chaser_node
 	src/leg_chaser_node.cpp
+	)
+
+target_link_libraries(leg_detection_node
+	leg_detection
+	${catkin_LIBRARIES}
+	${OpenCV_LIBRARIES}
+	#${Eigen_LIBRARIES}
 	)
 
 target_link_libraries(leg_chaser_node
@@ -39,3 +50,4 @@ target_link_libraries(leg_chaser_node
 	${OpenCV_LIBRARIES}
 	#${Eigen_LIBRARIES}
 	)
+

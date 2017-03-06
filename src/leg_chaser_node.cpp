@@ -1,19 +1,57 @@
 #include <ros/ros.h>
-#include <leg_chaser/leg_detection.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <std_msgs/Float32MultiArray.h>
+
+geometry_msgs::PoseStamped people;
+bool subscribed = false;
+
+void PeoplePoseCallback(const geometry_msgs::PoseStamped& msg)
+{
+	people = msg;
+	subscribed = true;
+}
 
 int main(int argc, char** argv)
 {
-	ros::init(argc, argv, "leg_detection_node");
+	ros::init(argc, argv, "leg_chaser_node");
+	ros::NodeHandle node_("~");
 
-	Legdet legdet;
-	legdet.SetClusterThreshold(0.03);
-	legdet.SetNanSkipNum(4);
-	legdet.SetLidarError(0.03);
-	legdet.SetFittingMinPoints(30);
-	legdet.SetLegDRange(0.08, 0.16);
-	legdet.SetErrorBarThreshold(0.004),
-	//legdet.SetLegDRange(0.04, 0.10);
-	legdet.Proccessing();
-	
+	std::string PeoplePoseTopic_, MovecmdTopic_;
+	double LinearGain_, AngularGain_, KeepDist_, MaxDist_;
+	node_.param("PeoplePoseTopic", PeoplePoseTopic_, std::string("/leg_detection/People"));
+	node_.param("MovecmdTopic", MovecmdTopic_, std::string("/omni_movecmd"));
+	node_.param("LinearGain", LinearGain_, 5.0);
+	node_.param("AngluarGain", AngularGain_, 5.0);
+	node_.param("KeepDistance", KeepDist_, 0.7);
+	node_.param("MaxDistance", MaxDist_, 1.5);
+
+	ros::Subscriber PeoplePoseSub = node_.subscribe(PeoplePoseTopic_, 1, PeoplePoseCallback);
+	ros::Publisher MovecmdPub = node_.advertise<std_msgs::Float32MultiArray>(MovecmdTopic_, 1);
+	ros::Rate looprate(30);
+
+	while(ros::ok()) {
+		if(subscribed) {
+			double distance = sqrt(pow(people.pose.position.x, 2) + pow(people.pose.position.y, 2));
+			double linear = 0.0;
+			double angular = 0.0;
+			if(distance<MaxDist_) {
+				linear = LinearGain_ * (distance - KeepDist_);
+				if(linear<0) linear = 0;
+				angular = AngularGain_ * atan2(people.pose.position.y, people.pose.position.x);
+			}
+
+			std_msgs::Float32MultiArray movecmd;
+			movecmd.data.push_back(0.0);
+			movecmd.data.push_back(linear);
+			movecmd.data.push_back(angular);
+			MovecmdPub.publish(movecmd);
+		}
+
+		subscribed = false;
+		ros::spinOnce();
+		looprate.sleep();
+	}
+
+
 	return 0;
 }

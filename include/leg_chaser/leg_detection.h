@@ -69,6 +69,7 @@ class Legdet{
 			bool isLeg;
 		};
 		std::vector<Cluster> ClusterList;
+		bool PeopleExist;
 
 		void scanCallback(const sensor_msgs::LaserScan::ConstPtr&);
 		void ScanWrite(sensor_msgs::LaserScan);

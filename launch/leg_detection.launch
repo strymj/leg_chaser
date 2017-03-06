@@ -119,6 +119,8 @@
 	  <remap from="image" to="/camera/depth/image_raw" />
   </node>
 
+  <node name="leg_detection" pkg="leg_chaser" type="leg_detection_node" />
+  
   <node name="leg_chaser" pkg="leg_chaser" type="leg_chaser_node" />
 
   <node name="rviz" pkg="rviz" type="rviz" />

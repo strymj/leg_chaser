@@ -14,12 +14,13 @@ Legdet::Legdet():
 	LegDMax(0.16),
 	LegWidthMax(0.4),
 	ClusterThreshold(0.03),
-	NanSkipNum(4),
+	NanSkipNum(3),
 	LidarError(0.0),
 	ErrorBarThreshold(0.003),
 	FittingMinPoints(20)
 {
 	subscribed = false;
+	PeopleExist = false;
 	ScanSub = node_.subscribe(ScanTopic, 1, &Legdet::scanCallback, this);
 	ClusteredScanPub = node_.advertise<sensor_msgs::LaserScan>(ClusteredScanTopic, 1);
 	LegScanPub = node_.advertise<sensor_msgs::LaserScan>(LegScanTopic, 1);
@@ -136,9 +137,10 @@ void Legdet::Proccessing()
 			ClusteredScanPub.publish(ClusteredScan);
 			LegScanPub.publish(scan);
 			LegPointsPub.publish(LegPoints);
-			PeoplePub.publish(People);
+			if(PeopleExist) PeoplePub.publish(People);
 			VectorClear();
 			subscribed = false;
+			PeopleExist = false;
 		}
 
 		cout<<"<roopEnd>"<<endl;
@@ -162,13 +164,7 @@ void Legdet::Clustering()
 	Cluster cluster = { {0, 0}, {-1.0, 0.0, 0.0, 0.0}, false};
 	int inte = 0;
 	for(int i=0; i+1<I.size(); ++i) {
-		double dist = CalcDist(I[i], I[i+1]);
-		DistanceList.push_back(dist);
-		if(isFar(I[i], I[i+1]) || NanSkipNum<=I[i+1]-I[i]) {
-			//if(i+2<I.size() && !isFar(I[i], I[i+2])) {
-			//	I.erase(I.begin()+i+1);
-			//}
-			//else {
+		if(isFar(I[i], I[i+1]) || NanSkipNum<I[i+1]-I[i]) {
 			cluster.range.Iend = i;
 			ClusterList.push_back(cluster);
 			for(int j=cluster.range.Ibgn; j<=cluster.range.Iend; ++j) {
@@ -176,7 +172,6 @@ void Legdet::Clustering()
 			}
 			inte += 1;
 			cluster.range.Ibgn = i+1;
-			//}
 		}
 	}
 }
@@ -225,6 +220,7 @@ void Legdet::PeopleDetection()
 			double py = (y1+y2)/2;
 			double dist = sqrt(px*px + py*py);
 			if(PeopleDistMin<0 || dist<PeopleDistMin) {
+				PeopleExist = true;
 				PeopleDistMin = dist;
 				double yaw = atan2(y2-y1, x2-x1) - M_PI/2;
 				geometry_msgs::Quaternion q;
