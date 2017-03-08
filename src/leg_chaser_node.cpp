@@ -20,10 +20,10 @@ int main(int argc, char** argv)
 	double LinearGain_, AngularGain_, KeepDist_, MaxDist_;
 	node_.param("PeoplePoseTopic", PeoplePoseTopic_, std::string("/leg_detection/People"));
 	node_.param("MovecmdTopic", MovecmdTopic_, std::string("/omni_movecmd"));
-	node_.param("LinearGain", LinearGain_, 5.0);
-	node_.param("AngluarGain", AngularGain_, 5.0);
-	node_.param("KeepDistance", KeepDist_, 0.7);
-	node_.param("MaxDistance", MaxDist_, 1.5);
+	node_.param("LinearGain", LinearGain_, 2.0);
+	node_.param("AngluarGain", AngularGain_, 2.3);
+	node_.param("KeepDistance", KeepDist_, 1.2);
+	node_.param("MaxDistance", MaxDist_, 2.0);
 
 	ros::Subscriber PeoplePoseSub = node_.subscribe(PeoplePoseTopic_, 1, PeoplePoseCallback);
 	ros::Publisher MovecmdPub = node_.advertise<std_msgs::Float32MultiArray>(MovecmdTopic_, 1);
@@ -41,8 +41,8 @@ int main(int argc, char** argv)
 			}
 
 			std_msgs::Float32MultiArray movecmd;
-			movecmd.data.push_back(0.0);
 			movecmd.data.push_back(linear);
+			movecmd.data.push_back(0.0);
 			movecmd.data.push_back(angular);
 			MovecmdPub.publish(movecmd);
 		}
