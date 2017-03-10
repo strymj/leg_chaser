@@ -16,7 +16,7 @@ Legdet::Legdet():
 	ClusterThreshold(0.03),
 	NanSkipNum(3),
 	LidarError(0.0),
-	ErrorBarThreshold(0.003),
+	ErrorBarThreshold(0.004),
 	FittingMinPoints(20)
 {
 	subscribed = false;
@@ -231,7 +231,6 @@ void Legdet::PeopleDetection()
 				People.pose.orientation = q;
 			}
 		}
-
 	}
 }
 
